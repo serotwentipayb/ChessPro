@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Game with Undo & Clock Tap & Castling</title>
+    <style>
+        /* CSS Styling */
+        :root {
+            /* Default Board Colors */
+            --light-square-color: #f0d9b5; /* Light wood color */
+            --dark-square-color: #b58863; /* Dark wood color */
+            /* Default Piece Colors (still used for text-shadow, but pieces will be styled by Unicode) */
+            --white-piece-color: #fff;
+            --black-piece-color: #000;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: grid; /* Use CSS Grid for overall layout */
+            grid-template-columns: 1fr auto 1fr; /* Left Sidebar, Board Column, Right Sidebar */
+            grid-template-rows: auto auto 1fr auto auto auto auto; /* Black Timer, Black Captured, Board Row, White Captured, White Timer, Game Control Buttons, Settings Menu */
+            min-height: 100vh;
+            background-color: #2e2e2e; /* Dark background */
+            margin: 0;
+            color: #e0e0e0;
+            place-items: center; /* Center content horizontally and vertically within grid cells */
+            gap: 15px; /* Space between grid items */
+            padding: 20px;
+            box-sizing: border-box; /* Include padding in element's total width and height */
+        }
+
+        /* Timers */
+        #black-timer, #white-timer {
+            grid-column: 2 / 3; /* Board column */
+            background-color: #4a4a4a;
+            padding: 8px 15px;
+            border-radius: 6px;
+            width: fit-content;
+            justify-self: center;
+            font-size: 1.5em;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            min-width: 100px;
+            text-align: center;
+            display: flex; /* Use flex to align time and button */
+            align-items: center;
+            gap: 10px;
+        }
+
+        #black-timer {
+            grid-row: 1 / 2; /* Top row */
+        }
+
+        #white-timer {
+            grid-row: 5 / 6; /* Bottom row */
+        }
+
+        .clock-tap-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: background-color 0.2s ease;
+        }
+
+        .clock-tap-button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        .clock-tap-button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        /* Captured Pieces Bars */
+        #captured-pieces-black-bar {
+            grid-column: 2 / 3; /* Board column */
+            grid-row: 2 / 3; /* Below black timer, above board */
+            width: 480px; /* Match board width */
+            padding: 5px;
+            background-color: #3d3d3d;
+            border-radius: 6px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.3);
+            min-height: 40px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #captured-pieces-white-bar {
+            grid-column: 2 / 3; /* Board column */
+            grid-row: 4 / 5; /* Below board, above white timer */
+            width: 480px; /* Match board width */
+            padding: 5px;
+            background-color: #3d3d3d;
+            border-radius: 6px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.3);
+            min-height: 40px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .captured-pieces-bar .piece {
+            font-size: 28px; /* Slightly smaller for captured pieces */
+            opacity: 0.8;
+            cursor: default;
+        }
+
+        /* Main Game Content (Board & Sidebars) */
+        .game-main {
+            grid-column: 1 / 4; /* Span all three columns */
+            grid-row: 3 / 4; /* Middle row, for the chessboard */
+            display: flex; /* Use flexbox for side-by-side layout within this area */
+            align-items: center; /* Vertically align items in the middle */
+            gap: 25px; /* Space between board and sidebars */
+            padding: 10px;
+            background-color: #383838;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.6);
+        }
+
+        .left-sidebar, .right-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            padding: 15px;
+            background-color: #444;
+            border-radius: 8px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+            height: 480px; /* Match board height for visual alignment */
+            width: 180px; /* Fixed width for sidebars */
+            flex-shrink: 0; /* Prevent shrinking */
+            justify-content: flex-start; /* Align content to the top */
+        }
+
+        .chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, 60px);
+            grid-template-rows: repeat(8, 60px);
+            width: 480px; /* 8 * 60px */
+            height: 480px; /* 8 * 60px */
+            border: 2px solid #555;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+            position: relative; /* Needed for absolute positioning of move guides */
+        }
+
+        .square {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            cursor: pointer;
+            user-select: none;
+            position: relative; /* For move guide dot */
+        }
+
+        .square.light {
+            background-color: var(--light-square-color);
+        }
+
+        .square.dark {
+            background-color: var(--dark-square-color);
+        }
+
+        .square.in-check {
+            background-color: rgba(255, 0, 0, 0.6) !important; /* Red highlight for King in check */
+            border: 2px solid red !important;
+        }
+
+        .piece {
+            cursor: grab;
+            font-size: 40px;
+            line-height: 1;
+        }
+
+        /* White pieces */
+        .piece.white {
+            color: var(--white-piece-color);
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
+        }
+
+        /* Black pieces */
+        .piece.black {
+            color: var(--black-piece-color);
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.7);
+        }
+
+        /* Move Guide Dot */
+        .move-guide-dot {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: rgba(0, 128, 0, 0.5); /* Semi-transparent green */
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 5px rgba(0, 128, 0, 0.8);
+        }
+
+        .sidebar h2 {
+            text-align: center;
+            color: #e0e0e0;
+            margin-top: 0;
+            border-bottom: 1px solid #666;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+        }
+
+        #move-history {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            width: 100%; /* Fill sidebar width */
+            max-height: 100%; /* Fill available space */
+            overflow-y: auto;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background-color: #555;
+            flex-grow: 1; /* Allow it to take up remaining space */
+        }
+
+        #move-history li {
+            padding: 4px 8px;
+            border-bottom: 1px dotted #666;
+            font-size: 0.9em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #move-history li:last-child {
+            border-bottom: none;
+        }
+        #move-history li span {
+            min-width: 60px; /* Give some width to each move part */
+        }
+        #move-history li span:first-child {
+            font-weight: bold;
+            color: #b3b3b3;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+        }
+        #move-history-controls {
+            margin-top: auto; /* Pushes content to the bottom */
+            padding-top: 15px;
+            border-top: 1px solid #666;
+        }
+
+
+        .controls button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+
+        .controls button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        .controls button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        /* --- Game Control Buttons --- */
+        #game-control-buttons {
+            grid-column: 2 / 3;
+            grid-row: 6 / 7; /* Placed below white timer */
+            display: flex;
+            justify-content: center;
+            gap: 15px; /* Reduced gap */
+            margin-top: 20px;
+            width: 480px;
+        }
+
+        #game-control-buttons button {
+            flex-grow: 1;
+            padding: 12px 20px;
+            font-size: 1.1em;
+        }
+
+        #play-button {
+            background-color: #28a745; /* Green */
+        }
+        #play-button:hover:not(:disabled) {
+            background-color: #218838;
+        }
+
+        #abandon-button {
+            background-color: #dc3545; /* Red */
+        }
+        #abandon-button:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+
+        #open-settings-button {
+            background-color: #ffc107; /* Yellow */
+            color: #333; /* Darker text for contrast */
+        }
+        #open-settings-button:hover:not(:disabled) {
+            background-color: #e0a800;
+        }
+
+        /* --- Settings Menu Styles --- */
+        #settings-menu-container {
+            grid-column: 2 / 3; /* Underneath the board, in the main column */
+            grid-row: 7 / 8; /* New row below game control buttons */
+            background-color: #3d3d3d;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            width: 480px; /* Match board width */
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            gap: 15px;
+            justify-content: center;
+            align-items: center;
+            position: relative; /* For close button positioning */
+            z-index: 100; /* Ensure it's on top */
+        }
+
+        #settings-menu-container.active {
+            display: flex; /* Show when active */
+        }
+
+        #settings-menu-container h3 {
+            margin-top: 0;
+            color: #e0e0e0;
+            border-bottom: 1px solid #555;
+            padding-bottom: 8px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .setting-group label {
+            font-weight: bold;
+            color: #c0c0c0;
+            margin-bottom: 5px;
+        }
+
+        .theme-options {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap; /* Allow options to wrap */
+            justify-content: center;
+        }
+
+        .theme-option-box {
+            width: 80px; /* Wider for preview */
+            height: 60px;
+            border: 2px solid #777;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: border-color 0.2s ease, transform 0.1s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.8em;
+            text-align: center;
+            color: #e0e0e0;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+
+        .theme-option-box.selected {
+            border-color: #007bff;
+            transform: scale(1.05);
+            box-shadow: 0 0 8px rgba(0, 123, 255, 0.7);
+        }
+
+        /* Previews for board themes */
+        .theme-option-box.board-theme-preview {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            overflow: hidden; /* Hide overflow of small squares */
+        }
+        .board-theme-preview div {
+            width: 100%;
+            height: 100%;
+        }
+        .board-theme-preview div:nth-child(1) { background-color: var(--light-square-color-preview); }
+        .board-theme-preview div:nth-child(2) { background-color: var(--dark-square-color-preview); }
+        .board-theme-preview div:nth-child(3) { background-color: var(--dark-square-color-preview); }
+        .board-theme-preview div:nth-child(4) { background-color: var(--light-square-color-preview); }
+
+        #settings-close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 1.8em;
+            color: #bbb;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+        #settings-close-button:hover {
+            color: #fff;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="black-timer">
+        <span id="black-time-display">00:00</span>
+        <button id="black-clock-tap" class="clock-tap-button" disabled>Tap</button>
+    </div>
+
+    <div id="captured-pieces-black-bar" class="captured-pieces-bar">
+        </div>
+
+    <div class="game-main">
+        <div class="left-sidebar">
+            <h2>Game Info</h2>
+            <p>Player: You (White)</p>
+            <p>Opponent: Human (Black)</p>
+            </div>
+
+        <div class="chessboard" id="chessboard"></div>
+
+        <div class="right-sidebar">
+            <h2>Move History</h2>
+            <ol id="move-history"></ol>
+            <div id="move-history-controls" class="controls">
+                <button id="undo-button">Undo Last Move</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="captured-pieces-white-bar" class="captured-pieces-bar">
+        </div>
+
+    <div id="white-timer">
+        <span id="white-time-display">00:00</span>
+        <button id="white-clock-tap" class="clock-tap-button" disabled>Tap</button>
+    </div>
+
+    <div id="game-control-buttons">
+        <button id="play-button" class="controls button">Play</button>
+        <button id="abandon-button" class="controls button">Abandon</button>
+        <button id="open-settings-button" class="controls button">Customize</button>
+    </div>
+
+
+    <div id="settings-menu-container">
+        <button id="settings-close-button">&times;</button>
+        <h3>Customize Board</h3>
+
+        <div class="setting-group">
+            <label>Board Theme:</label>
+            <div class="theme-options" id="board-theme-options">
+                <div class="theme-option-box board-theme-preview" data-light-color="#f0d9b5" data-dark-color="#b58863" data-color-preset="default-board"
+                    style="--light-square-color-preview: #f0d9b5; --dark-square-color-preview: #b58863;"><div></div><div></div><div></div><div></div></div>
+                <div class="theme-option-box board-theme-preview" data-light-color="#eeeed2" data-dark-color="#769656" data-color-preset="green-board"
+                    style="--light-square-color-preview: #eeeed2; --dark-square-color-preview: #769656;"><div></div><div></div><div></div><div></div></div>
+                <div class="theme-option-box board-theme-preview" data-light-color="#dee3e6" data-dark-color="#8ca2ad" data-color-preset="blue-board"
+                    style="--light-square-color-preview: #dee3e6; --dark-square-color-preview: #8ca2ad;"><div></div><div></div><div></div><div></div></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript Logic
+        document.addEventListener('DOMContentLoaded', () => {
+            const chessboard = document.getElementById('chessboard');
+            const moveHistoryList = document.getElementById('move-history');
+            const capturedPiecesWhiteBar = document.getElementById('captured-pieces-white-bar');
+            const capturedPiecesBlackBar = document.getElementById('captured-pieces-black-bar');
+            const whiteTimeDisplay = document.getElementById('white-time-display');
+            const blackTimeDisplay = document.getElementById('black-time-display');
+            const undoButton = document.getElementById('undo-button');
+            const whiteClockTapButton = document.getElementById('white-clock-tap');
+            const blackClockTapButton = document.getElementById('black-clock-tap');
+
+            // Game control buttons
+            const playButton = document.getElementById('play-button');
+            const abandonButton = document.getElementById('abandon-button');
+            const openSettingsButton = document.getElementById('open-settings-button');
+
+            // Settings menu elements
+            const settingsMenuContainer = document.getElementById('settings-menu-container');
+            const settingsCloseButton = document.getElementById('settings-close-button');
+            const boardThemeOptions = document.getElementById('board-theme-options');
+
+            // Standard Unicode Chess Pieces Mapping
+            // This is the only piece theme now, no custom fonts needed
+            const pieceSymbols = {
+                'k': '&#9818;', 'q': '&#9819;', 'r': '&#9820;', 'b': '&#9821;', 'n': '&#9822;', 'p': '&#9823;',
+                'K': '&#9812;', 'Q': '&#9813;', 'R': '&#9814;', 'B': '&#9815;', 'N': '&#9816;', 'P': '&#9817;'
+            };
+
+
+            // Initial Board Setup - All 32 pieces in standard positions
+            const initialBoard = [
+                ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
+                ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+                ['', '', '', '', '', '', '', ''],
+                ['', '', '', '', '', '', '', ''],
+                ['', '', '', '', '', '', '', ''],
+                ['', '', '', '', '', '', '', ''],
+                ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+                ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R']
+            ];
+
+            let board = JSON.parse(JSON.stringify(initialBoard)); // Deep copy to avoid modifying initialBoard
+            let selectedSquare = null; // Stores the DOM element of the square where the piece is selected from
+            let fromRow = -1; // Stores row of selected piece
+            let fromCol = -1; // Stores col of selected piece
+            let turn = 'white'; // Correctly initialized to white
+            let canMove = false; // Initially false, game starts when "Play" is pressed
+            let gameStarted = false; // New flag for game start
+            let moveHistory = [];
+            let capturedPieces = { white: [], black: [] }; // white[] holds pieces captured BY white; black[] holds pieces BY black
+
+            let initialTime = 10 * 60; // 10 minutes
+            let whiteTime = initialTime;
+            let blackTime = initialTime;
+            let timerInterval; // Holds the setInterval ID for the timer
+
+            // Castling flags - track if King or Rooks have moved
+            let whiteKingMoved = false;
+            let blackKingMoved = false;
+            let whiteKingsideRookMoved = false; // Original pos (7,7)
+            let whiteQueensideRookMoved = false; // Original pos (7,0)
+            let blackKingsideRookMoved = false; // Original pos (0,7)
+            let blackQueensideRookMoved = false; // Original pos (0,0)
+
+            // En passant tracking: Stores the details of the last move if it was a two-square pawn advance
+            // { piece: 'P'/'p', from: {row, col}, to: {row, col} } or null
+            let lastMove = null;
+
+            // Game state history for undo
+            let gameStateStack = [];
+
+            // Function to save current state
+            function saveGameState() {
+                // Ensure all relevant game state variables are saved
+                gameStateStack.push({
+                    board: JSON.parse(JSON.stringify(board)), // Deep copy board
+                    turn: turn,
+                    canMove: canMove,
+                    whiteTime: whiteTime,
+                    blackTime: blackTime,
+                    capturedPieces: {
+                        white: JSON.parse(JSON.stringify(capturedPieces.white)),
+                        black: JSON.parse(JSON.stringify(capturedPieces.black))
+                    },
+                    moveHistory: JSON.parse(JSON.stringify(moveHistory)),
+                    whiteKingMoved: whiteKingMoved,
+                    blackKingMoved: blackKingMoved,
+                    whiteKingsideRookMoved: whiteKingsideRookMoved,
+                    whiteQueensideRookMoved: whiteQueensideRookMoved,
+                    blackKingsideRookMoved: blackKingsideRookMoved,
+                    blackQueensideRookMoved: blackQueensideRookMoved,
+                    lastMove: lastMove ? JSON.parse(JSON.stringify(lastMove)) : null // Save lastMove
+                });
+                updateUndoButtonState();
+            }
+
+            // Function to load a state
+            function loadGameState(state) {
+                board = JSON.parse(JSON.stringify(state.board));
+                turn = state.turn;
+                canMove = state.canMove;
+                whiteTime = state.whiteTime;
+                blackTime = state.blackTime;
+                capturedPieces = {
+                    white: JSON.parse(JSON.stringify(state.capturedPieces.white)),
+                    black: JSON.parse(JSON.stringify(state.capturedPieces.black))
+                };
+                moveHistory = JSON.parse(JSON.stringify(state.moveHistory));
+                whiteKingMoved = state.whiteKingMoved;
+                blackKingMoved = state.blackKingMoved;
+                whiteKingsideRookMoved = state.whiteKingsideRookMoved;
+                whiteQueensideRookMoved = state.whiteQueensideRookMoved;
+                blackKingsideRookMoved = state.blackKingsideRookMoved;
+                blackQueensideRookMoved = state.blackQueensideRookMoved;
+                lastMove = state.lastMove ? JSON.parse(JSON.stringify(state.lastMove)) : null; // Load lastMove
+
+                clearHighlightsAndMoveGuides();
+                updateBoard();
+                updateTimersDisplay();
+                if (gameStarted && (turn === 'white' || turn === 'black')) { // Only start timer if game is started and a turn is active
+                    startTimer();
+                } else {
+                    clearInterval(timerInterval); // Ensure timer is off if game isn't started or turn is invalid
+                }
+                updateUndoButtonState();
+                updateClockButtonStates();
+                updateKingCheckHighlight();
+                updatePlayButtonState();
+                updateAbandonButtonState();
+            }
+
+            // Undo function
+            function undoLastMove() {
+                if (gameStateStack.length > 1) { // Ensure there's at least one previous state to revert to (excluding the initial)
+                    gameStateStack.pop(); // Remove the current (last) state
+                    const prevState = gameStateStack[gameStateStack.length - 1]; // Get the state BEFORE the one we just popped
+                    loadGameState(prevState);
+                } else if (gameStateStack.length === 1) {
+                    // This means we are at the initial state.
+                    // Instead of popping it, we simply load it to effectively "reset"
+                    // and ensure the board reflects the initial setup properly.
+                    loadGameState(gameStateStack[0]); // Load the very first saved state
+                    // If we revert to initial state, stop timers and enable Play button
+                    clearInterval(timerInterval);
+                    gameStarted = false;
+                    canMove = false;
+                    updatePlayButtonState();
+                    updateAbandonButtonState();
+                    updateClockButtonStates();
+                }
+                updateUndoButtonState();
+            }
+
+            function updateUndoButtonState() {
+                // Disable undo button if there's only the initial state left or fewer
+                undoButton.disabled = gameStateStack.length <= 1 || !gameStarted;
+            }
+
+            function createBoard() {
+                chessboard.innerHTML = ''; // Clear existing board
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        const square = document.createElement('div');
+                        square.classList.add('square');
+                        square.classList.add((i + j) % 2 === 0 ? 'light' : 'dark');
+                        square.dataset.row = i;
+                        square.dataset.col = j;
+                        chessboard.appendChild(square);
+                        placePiece(i, j, board[i][j]);
+                    }
+                }
+                updateTimersDisplay(); // Initialize timer display
+                updateClockButtonStates(); // Set initial clock button states (disabled)
+                updateKingCheckHighlight(); // Initial check for king highlight
+                updatePlayButtonState(); // Ensure play button is enabled
+                updateAbandonButtonState(); // Ensure abandon button is disabled initially
+            }
+
+            function placePiece(row, col, pieceChar) {
+                const square = chessboard.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                square.innerHTML = ''; // Clear existing piece
+                if (pieceChar) {
+                    const pieceDiv = document.createElement('div');
+                    pieceDiv.classList.add('piece');
+                    pieceDiv.classList.add(pieceChar === pieceChar.toUpperCase() ? 'white' : 'black');
+                    pieceDiv.innerHTML = pieceSymbols[pieceChar]; // Use standard symbols
+                    pieceDiv.dataset.piece = pieceChar; // Store the character for move history
+                    square.appendChild(pieceDiv);
+                }
+            }
+
+            function updateBoard() {
+                for (let i = 0; i < 8; i++) {
+                    for (let j = 0; j < 8; j++) {
+                        placePiece(i, j, board[i][j]);
+                    }
+                }
+                updateMoveHistory();
+                updateCapturedPiecesDisplay();
+                updateKingCheckHighlight(); // Update king highlight after every board refresh
+            }
+
+            function updateMoveHistory() {
+                moveHistoryList.innerHTML = '';
+                // Group moves into turns for display
+                for (let i = 0; i < moveHistory.length; i += 2) {
+                    const li = document.createElement('li');
+                    const moveNumber = Math.floor(i / 2) + 1;
+                    li.innerHTML = `<span>${moveNumber}.</span><span>${moveHistory[i]}</span>`;
+                    if (moveHistory[i + 1]) { // If black's move exists
+                        li.innerHTML += `<span>${moveHistory[i + 1]}</span>`;
+                    } else {
+                         li.innerHTML += `<span></span>`; // Placeholder for black's turn if not yet played
+                    }
+                    moveHistoryList.appendChild(li);
+                }
+                moveHistoryList.scrollTop = moveHistoryList.scrollHeight; // Scroll to bottom
+            }
+
+            function updateCapturedPiecesDisplay() {
+                capturedPiecesWhiteBar.innerHTML = ''; // Clear existing
+                capturedPiecesBlackBar.innerHTML = ''; // Clear existing
+
+                // Display pieces captured BY WHITE (these are BLACK pieces)
+                // These go into the 'captured-pieces-white-bar' below the board, facing white.
+                capturedPieces.white.forEach(p => {
+                    const pieceDiv = document.createElement('div');
+                    pieceDiv.classList.add('piece', 'black'); // Captured piece is black
+                    pieceDiv.innerHTML = pieceSymbols[p.toLowerCase()]; // Get unicode for black piece
+                    capturedPiecesWhiteBar.appendChild(pieceDiv);
+                });
+
+                // Display pieces captured BY BLACK (these are WHITE pieces)
+                // These go into the 'captured-pieces-black-bar' above the board, facing black.
+                capturedPieces.black.forEach(p => {
+                    const pieceDiv = document.createElement('div');
+                    pieceDiv.classList.add('piece', 'white'); // Captured piece is white
+                    pieceDiv.innerHTML = pieceSymbols[p.toUpperCase()]; // Get unicode for white piece
+                    capturedPiecesBlackBar.appendChild(pieceDiv);
+                });
+            }
+
+            // --- Chess Clock Logic ---
+            function updateTimersDisplay() {
+                whiteTimeDisplay.textContent = formatTime(whiteTime);
+                blackTimeDisplay.textContent = formatTime(blackTime);
+            }
+
+            function startTimer() {
+                if (timerInterval) clearInterval(timerInterval); // Clear any existing timer
+
+                timerInterval = setInterval(() => {
+                    if (turn === 'white') {
+                        whiteTime--;
+                    } else {
+                        blackTime--;
+                    }
+                    updateTimersDisplay();
+
+                    if (whiteTime <= 0) {
+                        clearInterval(timerInterval);
+                        alert('Black wins by time!');
+                        resetGame(); // Reset board after game over
+                    } else if (blackTime <= 0) {
+                        clearInterval(timerInterval);
+                        alert('White wins by time!');
+                        resetGame(); // Reset board after game over
+                    }
+                }, 1000);
+            }
+
+            function formatTime(seconds) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+
+            // Function to handle clock tap
+            function tapClock() {
+                if (!gameStarted) return; // Cannot tap clock if game hasn't started
+
+                clearInterval(timerInterval); // Stop the timer for the player who just tapped
+
+                // Switch turn
+                if (turn === 'white') {
+                    turn = 'black';
+                } else {
+                    turn = 'white';
+                }
+                canMove = true; // Allow the new player to make moves
+                startTimer(); // Start timer for the new turn
+                updateClockButtonStates(); // Update button enable/disable states
+                updateKingCheckHighlight(); // Check for check after turn switch
+
+                // *** CRITICAL CHANGE: Save game state ONLY after a clock tap (completing a turn) ***
+                saveGameState();
+            }
+
+            function updateClockButtonStates() {
+                // Logic for enabling/disabling the "Tap" buttons
+                // A player's "Tap" button should be enabled only if it's their turn AND they've made a move (canMove is false)
+                // Otherwise, it should be disabled.
+                whiteClockTapButton.disabled = (turn !== 'white' || canMove === true || !gameStarted);
+                blackClockTapButton.disabled = (turn !== 'black' || canMove === true || !gameStarted);
+            }
+
+            function updatePlayButtonState() {
+                playButton.disabled = gameStarted;
+            }
+
+            function updateAbandonButtonState() {
+                abandonButton.disabled = !gameStarted && gameStateStack.length <= 1;
+            }
+
+            function startGame() {
+                if (gameStarted) return; // Prevent multiple starts
+                gameStarted = true;
+                canMove = true; // Allow first move
+                startTimer(); // Start white's timer
+                updatePlayButtonState(); // Disable play button
+                updateAbandonButtonState(); // Enable abandon button
+                updateClockButtonStates(); // Enable white's tap button, disable black's
+                saveGameState(); // Save initial game state after starting
+            }
+
+            function resetGame() {
+                clearInterval(timerInterval); // Stop any running timer
+                whiteTime = initialTime; // Reset white's time
+                blackTime = initialTime; // Reset black's time
+                board = JSON.parse(JSON.stringify(initialBoard)); // Reset board to initial state
+                selectedSquare = null;
+                fromRow = -1;
+                fromCol = -1;
+                turn = 'white';
+                canMove = false;
+                gameStarted = false;
+                moveHistory = [];
+                capturedPieces = { white: [], black: [] };
+
+                whiteKingMoved = false;
+                blackKingMoved = false;
+                whiteKingsideRookMoved = false;
+                whiteQueensideRookMoved = false;
+                blackKingsideRookMoved = false;
+                blackQueensideRookMoved = false;
+                lastMove = null;
+                gameStateStack = []; // Clear undo history
+                saveGameState(); // Save the new initial state
+
+                clearHighlightsAndMoveGuides();
+                updateBoard();
+                updateTimersDisplay();
+                updateClockButtonStates();
+                updateKingCheckHighlight();
+                updatePlayButtonState(); // Enable play button
+                updateAbandonButtonState(); // Disable abandon button
+                updateUndoButtonState(); // Disable undo button
+            }
+            // --- End Chess Clock Logic ---
+
+            // Function to find king's position
+            function findKingPosition(color, currentBoard) {
+                const kingChar = color === 'white' ? 'K' : 'k';
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        if (currentBoard[r][c] === kingChar) {
+                            return { row: r, col: c };
+                        }
+                    }
+                }
+                return null; // Should not happen in a valid game
+            }
+
+            // Function to check if a square is attacked by a specific color
+            function isSquareAttacked(targetRow, targetCol, attackingColor, currentBoard) {
+                // Iterate through all squares on the board
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const pieceChar = currentBoard[r][c];
+                        if (!pieceChar) continue;
+
+                        const pieceColor = pieceChar === pieceChar.toUpperCase() ? 'white' : 'black';
+                        if (pieceColor !== attackingColor) continue; // Only check attacking color's pieces
+
+                        const pieceType = pieceChar.toLowerCase();
+
+                        // Check if this piece can hypothetically attack the target square
+                        // Note: This logic is simplified for attack checking and doesn't re-use isValidMove directly
+                        // as isValidMove has extra checks like same-color target, and is for *current player's* moves.
+                        switch (pieceType) {
+                            case 'p': // Pawn
+                                if (attackingColor === 'white') { // White pawn attacks diagonally forward
+                                    if (r - 1 === targetRow && Math.abs(c - targetCol) === 1) return true;
+                                } else { // Black pawn attacks diagonally forward
+                                    if (r + 1 === targetRow && Math.abs(c - targetCol) === 1) return true;
+                                }
+                                break;
+                            case 'n': // Knight
+                                const knightMoves = [
+                                    [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+                                    [1, -2], [1, 2], [2, -1], [2, 1]
+                                ];
+                                for (const [dr, dc] of knightMoves) {
+                                    if (r + dr === targetRow && c + dc === targetCol) return true;
+                                }
+                                break;
+                            case 'b': // Bishop
+                            case 'r': // Rook
+                            case 'q': // Queen
+                                // Check if the target is on a valid line of sight and path is clear
+                                const isDiagonal = Math.abs(r - targetRow) === Math.abs(c - targetCol);
+                                const isStraight = (r === targetRow || c === targetCol);
+
+                                if (!((pieceType === 'b' || pieceType === 'q') && isDiagonal) &&
+                                    !((pieceType === 'r' || pieceType === 'q') && isStraight)) {
+                                    continue; // Not a valid line for this piece type
+                                }
+
+                                if (isPathClear(r, c, targetRow, targetCol, currentBoard)) {
+                                    return true;
+                                }
+                                break;
+                            case 'k': // King
+                                if (Math.abs(r - targetRow) <= 1 && Math.abs(c - targetCol) <= 1) return true;
+                                break;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            // Modified isPathClear to accept a boardState parameter
+            function isPathClear(fromRow, fromCol, toRow, toCol, currentBoard) {
+                const rowDirection = Math.sign(toRow - fromRow);
+                const colDirection = Math.sign(toCol - fromCol);
+
+                let currentRow = fromRow + rowDirection;
+                let currentCol = fromCol + colDirection;
+
+                // Loop through squares *between* from and to (exclusive of target)
+                while (currentRow !== toRow || currentCol !== toCol) {
+                    if (currentBoard[currentRow][currentCol]) { // Check if square is occupied
+                        return false; // Path is blocked
+                    }
+                    currentRow += rowDirection;
+                    currentCol += colDirection;
+                }
+                return true; // Path is clear
+            }
+
+
+            function isKingInCheck(color, currentBoard) {
+                const kingPos = findKingPosition(color, currentBoard);
+                if (!kingPos) return false; // King not found (game over or error state)
+
+                const opponentColor = color === 'white' ? 'black' : 'white';
+                return isSquareAttacked(kingPos.row, kingPos.col, opponentColor, currentBoard);
+            }
+
+            function updateKingCheckHighlight() {
+                // Remove previous check highlights
+                document.querySelectorAll('.square.in-check').forEach(s => s.classList.remove('in-check'));
+
+                // Find white king and check if it's in check
+                const whiteKingPos = findKingPosition('white', board);
+                if (whiteKingPos && isKingInCheck('white', board)) {
+                    chessboard.querySelector(`[data-row="${whiteKingPos.row}"][data-col="${whiteKingPos.col}"]`).classList.add('in-check');
+                }
+
+                // Find black king and check if it's in check
+                const blackKingPos = findKingPosition('black', board);
+                if (blackKingPos && isKingInCheck('black', board)) {
+                    chessboard.querySelector(`[data-row="${blackKingPos.row}"][data-col="${blackKingPos.col}"]`).classList.add('in-check');
+                }
+            }
+
+            // Function to clear all highlights and move guides
+            function clearHighlightsAndMoveGuides() {
+                selectedSquare = null;
+                fromRow = -1; // Reset selected piece coordinates
+                fromCol = -1; // Reset selected piece coordinates
+                document.querySelectorAll('.move-guide-dot').forEach(dot => dot.remove());
+                updateKingCheckHighlight(); // Ensure check highlight is reset/re-applied correctly
+            }
+
+            // Function to show valid move guides
+            function showMoveGuides(row, col) {
+                clearHighlightsAndMoveGuides(); // Clear existing guides before showing new ones
+
+                // Store the selected piece's original coordinates
+                selectedSquare = chessboard.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                fromRow = row;
+                fromCol = col;
+
+                const pieceChar = board[fromRow][fromCol];
+                // pieceColor isn't strictly needed here, but good for context
+                const pieceColor = pieceChar === pieceChar.toUpperCase() ? 'white' : 'black';
+
+
+                for (let toRow = 0; toRow < 8; toRow++) {
+                    for (let toCol = 0; toCol < 8; toCol++) {
+                        // Pass a temporary board and activeTurn for hypothetical checks (generating dots)
+                        if (isValidMove(fromRow, fromCol, toRow, toCol, JSON.parse(JSON.stringify(board)), turn, { isHypothetical: true, lastMove: lastMove })) {
+                            const targetSquare = chessboard.querySelector(`[data-row="${toRow}"][data-col="${toCol}"]`);
+                            const dot = document.createElement('div');
+                            dot.classList.add('move-guide-dot');
+                            targetSquare.appendChild(dot);
+                        }
+                    }
+                }
+            }
+
+
+            chessboard.addEventListener('click', (event) => {
+                // Prevent interaction if `canMove` is false for the current player
+                if (!canMove) {
+                    return;
+                }
+
+                let clickedElement = event.target;
+                let targetSquare;
+
+                // If a move-guide-dot was clicked, get its parent square
+                if (clickedElement.classList.contains('move-guide-dot')) {
+                    targetSquare = clickedElement.closest('.square');
+                } else {
+                    targetSquare = clickedElement.closest('.square');
+                }
+
+                if (!targetSquare) return; // Clicked outside any square
+
+                const row = parseInt(targetSquare.dataset.row);
+                const col = parseInt(targetSquare.dataset.col);
+                const pieceOnTargetSquare = board[row][col]; // Piece currently on the target square
+
+                if (selectedSquare) {
+                    // A piece is already selected (fromRow, fromCol are set)
+                    // Try to move the selected piece to this clicked square
+                    const pieceCharSelected = board[fromRow][fromCol]; // Piece that is being moved
+                    const pieceColorSelected = pieceCharSelected === pieceCharSelected.toUpperCase() ? 'white' : 'black';
+
+                    // Check if the move is valid using the actual board and turn, and current lastMove state
+                    let enPassantHappened = false; // Flag to check if this move is an actual en passant
+                    // To do this, we need to run isValidMove with isHypothetical: false, and capture the result.
+                    // If it returns true, then we proceed.
+                    if (isValidMove(fromRow, fromCol, row, col, board, turn, { lastMove: lastMove })) {
+                        let capturedPieceAtTarget = board[row][col]; // Get piece at target BEFORE moving
+
+                        // Special handling for en passant capture detection
+                        // This block should check if the conditions *were* met for en passant,
+                        // not re-validate the move (isValidMove already did that).
+                        // If it's a pawn moving diagonally to an empty square, it must be en passant.
+                        if (pieceCharSelected.toLowerCase() === 'p' && !capturedPieceAtTarget && Math.abs(col - fromCol) === 1) {
+                            const capturedPawnRow = pieceColorSelected === 'white' ? row + 1 : row - 1;
+                            const capturedPawnCol = col; // The column of the pawn that *would be* captured
+
+                            // Verify if the pawn to be captured actually exists at the en passant capture square.
+                            // This check is is still required here to modify the actual board, even though isValidMove checked hypothetically.
+                            if ((pieceColorSelected === 'white' && board[capturedPawnRow][capturedPawnCol] === 'p') ||
+                                (pieceColorSelected === 'black' && board[capturedPawnRow][capturedPawnCol] === 'P')) {
+
+                                capturedPieceAtTarget = board[capturedPawnRow][capturedPawnCol]; // Get the actual en passant captured pawn
+                                board[capturedPawnRow][capturedPawnCol] = ''; // Remove the captured pawn from its square
+                                enPassantHappened = true;
+                            }
+                        }
+
+                        if (capturedPieceAtTarget) {
+                            const capturedColor = capturedPieceAtTarget === capturedPieceAtTarget.toUpperCase() ? 'white' : 'black';
+                            if (capturedColor === 'white') {
+                                capturedPieces.black.push(capturedPieceAtTarget);
+                            } else {
+                                capturedPieces.white.push(capturedPieceAtTarget);
+                            }
+                        }
+
+                        // Make the move on the actual board
+                        board[row][col] = board[fromRow][fromCol];
+                        board[fromRow][fromCol] = '';
+
+                        // --- Update lastMove for en passant tracking for the *next* turn ---
+                        if (pieceCharSelected.toLowerCase() === 'p' && Math.abs(row - fromRow) === 2) {
+                            // If a pawn moved two squares, record it for potential en passant next turn
+                            lastMove = {
+                                piece: pieceCharSelected,
+                                from: { row: fromRow, col: fromCol },
+                                to: { row: row, col: col }
+                            };
+                        } else {
+                            lastMove = null; // No en passant opportunity for the next turn
+                        }
+
+                        // Determine move notation and apply special piece movements (castling)
+                        const movedPieceCharUpper = pieceCharSelected.toUpperCase();
+                        let moveNotation = '';
+
+                        // Helper function to convert column index to file letter
+                        const toFile = (c) => String.fromCharCode(97 + c);
+                        const toRank = (r) => 8 - r;
+
+                        // Handle Castling moves and update notation
+                        if (movedPieceCharUpper === 'K' && Math.abs(col - fromCol) === 2 && row === fromRow) {
+                            if (col - fromCol > 0) { // Kingside Castling
+                                moveNotation = 'O-O';
+                                board[row][5] = board[row][7]; // Move Rook from h-file to f-file
+                                board[row][7] = ''; // Clear old rook position
+                            } else { // Queenside Castling
+                                moveNotation = 'O-O-O';
+                                board[row][3] = board[row][0]; // Move Rook from a-file to d-file
+                                board[row][0] = ''; // Clear old rook position
+                            }
+                            // Update global castling flags
+                            if (pieceColorSelected === 'white') whiteKingMoved = true;
+                            else blackKingMoved = true;
+                        }
+                        // Handle Promotion
+                        else if (movedPieceCharUpper === 'P' && (row === 0 || row === 7)) { // Pawn reaches last rank
+                            // Prompt for promotion piece (Queen, Rook, Bishop, Knight)
+                            let promotionChoice = '';
+                            while (!['Q', 'R', 'B', 'N'].includes(promotionChoice.toUpperCase())) {
+                                promotionChoice = prompt("Promote pawn to (Q, R, B, N):").toUpperCase();
+                            }
+                            board[row][col] = pieceColorSelected === 'white' ? promotionChoice : promotionChoice.toLowerCase();
+                            moveNotation = toFile(fromCol) + (capturedPieceAtTarget || enPassantHappened ? 'x' : '') + toFile(col) + toRank(row) + '=' + promotionChoice;
+
+                        }
+                        // Handle general moves (capture or non-capture)
+                        else {
+                            // Update King/Rook moved flags for non-castling moves
+                            if (movedPieceCharUpper === 'K') {
+                                if (pieceColorSelected === 'white') whiteKingMoved = true;
+                                else blackKingMoved = true;
+                            } else if (movedPieceCharUpper === 'R') {
+                                if (pieceColorSelected === 'white') {
+                                    if (fromRow === 7 && fromCol === 0) whiteQueensideRookMoved = true;
+                                    if (fromRow === 7 && fromCol === 7) whiteKingsideRookMoved = true;
+                                } else { // black
+                                    if (fromRow === 0 && fromCol === 0) blackQueensideRookMoved = true;
+                                    if (fromRow === 0 && fromCol === 7) blackKingsideRookMoved = true;
+                                }
+                            }
+
+                            const fromCoord = toFile(fromCol) + toRank(fromRow);
+                            const toCoord = toFile(col) + toRank(row);
+                            const pieceNotationPrefix = (movedPieceCharUpper === 'P') ? '' : movedPieceCharUpper;
+
+                            if (capturedPieceAtTarget || enPassantHappened) { // It was a capture or en passant
+                                if (movedPieceCharUpper === 'P') { // Pawn capture needs starting file
+                                    moveNotation = `${toFile(fromCol)}x${toCoord}`;
+                                } else {
+                                    moveNotation = `${pieceNotationPrefix}x${toCoord}`;
+                                }
+                                if (enPassantHappened) {
+                                    moveNotation += ' e.p.'; // Add en passant notation
+                                }
+                            } else { // Regular non-capture move
+                                moveNotation = `${pieceNotationPrefix}${toCoord}`;
+                            }
+                        }
+
+                        // Check for check/checkmate after the move
+                        const opponentColor = turn === 'white' ? 'black' : 'white';
+                        if (isKingInCheck(opponentColor, board)) {
+                            let isCheckmate = true; // Assume checkmate until a legal move is found
+                            for (let r = 0; r < 8; r++) {
+                                for (let c = 0; c < 8; c++) {
+                                    const piece = board[r][c];
+                                    if (piece && (piece === piece.toUpperCase() ? 'white' : 'black') === opponentColor) {
+                                        for (let tr = 0; tr < 8; tr++) {
+                                            for (let tc = 0; tc < 8; tc++) {
+                                                // Test if this opponent piece has any valid moves on a hypothetical board
+                                                // When checking for checkmate, `lastMove` should be the one *after* the current move
+                                                // so we pass the `lastMove` state as it would be for the opponent's next turn.
+                                                if (isValidMove(r, c, tr, tc, JSON.parse(JSON.stringify(board)), opponentColor, { isHypothetical: true, lastMove: lastMove })) {
+                                                    isCheckmate = false; // Found at least one legal move
+                                                    break;
+                                                }
+                                            }
+                                            if (!isCheckmate) break;
+                                        }
+                                    }
+                                    if (!isCheckmate) break;
+                                }
+                                if (!isCheckmate) break;
+                            }
+
+                            if (isCheckmate) {
+                                moveNotation += '#'; // Checkmate
+                                alert(`Checkmate! ${turn === 'white' ? 'White' : 'Black'} wins!`);
+                                resetGame(); // Reset board after game over
+                            } else {
+                                moveNotation += '+'; // Check
+                            }
+                        }
+
+                        moveHistory.push(moveNotation); // Record the determined move notation
+
+                        updateBoard();
+                        // DONT clearInterval(timerInterval) here. Timer continues until clock tap.
+                        canMove = false; // Disable piece movement until clock is tapped
+                        updateClockButtonStates(); // Update button states: current player's tap button enabled
+                    }
+                    // Always clear highlights and move guides after a move attempt
+                    clearHighlightsAndMoveGuides();
+
+                } else if (pieceOnTargetSquare) {
+                    // No piece selected yet, select this one if it's the correct turn
+                    const pieceColor = pieceOnTargetSquare === pieceOnTargetSquare.toUpperCase() ? 'white' : 'black';
+                    if (pieceColor === turn) {
+                        showMoveGuides(row, col); // Show possible moves for the selected piece
+                    }
+                }
+            });
+
+            // Basic Move Validation including castling, king safety, and en passant
+            // Now accepts currentBoard, activeTurn, and an options object (for hypothetical checks, and lastMove)
+            function isValidMove(fromRow, fromCol, toRow, toCol, boardState, activeTurn, options = {}) {
+                const isHypothetical = options.isHypothetical || false; // Default to false
+                const currentLastMove = options.lastMove || null; // Pass lastMove state for validation
+
+                // Ensure target square is within bounds
+                if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) return false;
+
+                const pieceChar = boardState[fromRow][fromCol];
+                if (!pieceChar) return false; // No piece selected to move
+
+                const targetPieceChar = boardState[toRow][toCol];
+                const pieceColor = pieceChar === pieceChar.toUpperCase() ? 'white' : 'black';
+                const targetColor = targetPieceChar ? (targetPieceChar === targetPieceChar.toUpperCase() ? 'white' : 'black') : null;
+
+                // Cannot move a piece if it's not the active turn (unless it's a hypothetical check for opponent moves)
+                if (pieceColor !== activeTurn && !isHypothetical) {
+                     return false;
+                }
+
+                // Cannot move to a square occupied by your own piece
+                if (targetPieceChar && pieceColor === targetColor) {
+                    return false;
+                }
+
+                const rowDiff = toRow - fromRow; // Now signed difference for direction
+                const colDiff = toCol - fromCol; // Now signed difference for direction
+                const absRowDiff = Math.abs(rowDiff);
+                const absColDiff = Math.abs(colDiff);
+
+                // --- Simulate move to check if king is in check after the move ---
+                let tempBoardForCheck = JSON.parse(JSON.stringify(boardState)); // Deep copy for this check
+
+                // Perform hypothetical move on tempBoardForCheck
+                tempBoardForCheck[toRow][toCol] = tempBoardForCheck[fromRow][fromCol];
+                tempBoardForCheck[fromRow][fromCol] = '';
+
+                // Handle hypothetical capture for en passant in temp board
+                let tempCapturedPawnForEnPassant = null; // Store for potential restoration if check happens
+                if (pieceChar.toLowerCase() === 'p' && !targetPieceChar && absColDiff === 1) { // Pawn moving diagonally to empty square
+                    const capturedPawnRow = pieceColor === 'white' ? toRow + 1 : toRow - 1;
+                    const capturedPawnCol = toCol; // The column of the pawn that *would be* captured
+
+                    // Verify if it's an actual en passant scenario for simulation
+                    if (currentLastMove && currentLastMove.piece === (pieceColor === 'white' ? 'p' : 'P') && // Last moved piece was opposite color pawn
+                        Math.abs(currentLastMove.from.row - currentLastMove.to.row) === 2 && // Last move was a 2-square pawn advance
+                        currentLastMove.to.col === toCol && // Last moved pawn is in the target column of the capture
+                        currentLastMove.to.row === fromRow // Last moved pawn is on the same rank as the capturing pawn's original rank
+                    ) {
+                        tempCapturedPawnForEnPassant = tempBoardForCheck[capturedPawnRow][capturedPawnCol]; // Store the pawn
+                        tempBoardForCheck[capturedPawnRow][capturedPawnCol] = ''; // Remove the captured pawn hypothetically
+                    }
+                }
+
+                // If it's a castling move, also move the rook hypothetically on tempBoardForCheck
+                if (pieceChar.toLowerCase() === 'k' && absColDiff === 2 && absRowDiff === 0) {
+                     // Determine if it's a kingside or queenside castling move
+                    const isKingside = colDiff > 0;
+                    const rookOriginalCol = isKingside ? 7 : 0;
+                    const rookNewCol = isKingside ? 5 : 3;
+                    tempBoardForCheck[toRow][rookNewCol] = tempBoardForCheck[toRow][rookOriginalCol];
+                    tempBoardForCheck[toRow][rookOriginalCol] = '';
+                }
+
+                if (isKingInCheck(pieceColor, tempBoardForCheck)) {
+                    // Restore the captured pawn if it was an en passant move on the temp board
+                    if (tempCapturedPawnForEnPassant) {
+                        const capturedPawnRow = pieceColor === 'white' ? toRow + 1 : toRow - 1;
+                        const capturedPawnCol = toCol;
+                        tempBoardForCheck[capturedPawnRow][capturedPawnCol] = tempCapturedPawnForEnPassant;
+                    }
+                    return false; // King would be in check after this move
+                }
+                // --- End simulate move check ---
+
+
+                switch (pieceChar.toLowerCase()) {
+                    case 'p': // Pawn
+                        if (pieceColor === 'white') {
+                            // Move one square forward
+                            if (rowDiff === -1 && colDiff === 0 && !targetPieceChar) return true;
+                            // Initial two-square move
+                            if (fromRow === 6 && rowDiff === -2 && colDiff === 0 && !boardState[fromRow - 1][fromCol] && !targetPieceChar) return true;
+                            // Standard Capture diagonally
+                            if (rowDiff === -1 && absColDiff === 1 && targetPieceChar && targetColor === 'black') return true;
+                            // En passant capture
+                            // White pawn moves from rank 5 (row 3) to rank 6 (row 2)
+                            if (fromRow === 3 && rowDiff === -1 && absColDiff === 1 && !targetPieceChar) {
+                                // Check if the last move made by black was a pawn moving two squares
+                                // and if that pawn is now directly to the left or right of current pawn
+                                if (currentLastMove && currentLastMove.piece === 'p' && // Last moved piece was a black pawn
+                                    currentLastMove.from.row === 1 && currentLastMove.to.row === 3 && // Black pawn moved two squares from start
+                                    currentLastMove.to.col === toCol // Black pawn landed in the column of the capture (e.g., if white capturing to f6, black pawn was on f5)
+                                ) {
+                                    return true;
+                                }
+                            }
+                        } else { // Black pawn
+                            // Move one square forward
+                            if (rowDiff === 1 && colDiff === 0 && !targetPieceChar) return true;
+                            // Initial two-square move
+                            if (fromRow === 1 && rowDiff === 2 && colDiff === 0 && !boardState[fromRow + 1][fromCol] && !targetPieceChar) return true;
+                            // Standard Capture diagonally
+                            if (rowDiff === 1 && absColDiff === 1 && targetPieceChar && targetColor === 'white') return true;
+                            // En passant capture
+                            // Black pawn moves from rank 4 (row 4) to rank 3 (row 5)
+                            if (fromRow === 4 && rowDiff === 1 && absColDiff === 1 && !targetPieceChar) {
+                                // Check if the last move made by white was a pawn moving two squares
+                                // and if that pawn is now directly to the left or right of current pawn
+                                if (currentLastMove && currentLastMove.piece === 'P' && // Last moved piece was a white pawn
+                                    currentLastMove.from.row === 6 && currentLastMove.to.row === 4 && // White pawn moved two squares from start
+                                    currentLastMove.to.col === toCol // White pawn landed in the column of the capture
+                                ) {
+                                    return true;
+                                }
+                            }
+                        }
+                        break;
+                    case 'r': // Rook
+                        if ((absRowDiff === 0 && absColDiff > 0) || (absColDiff === 0 && absRowDiff > 0)) {
+                            return isPathClear(fromRow, fromCol, toRow, toCol, boardState);
+                        }
+                        break;
+                    case 'n': // Knight
+                        if ((absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2)) return true; // Knight can jump over pieces, no path check needed
+                        break;
+                    case 'b': // Bishop
+                        if (absRowDiff === absColDiff && absRowDiff > 0) {
+                            return isPathClear(fromRow, fromCol, toRow, toCol, boardState);
+                        }
+                        break;
+                    case 'q': // Queen
+                        if ((absRowDiff === 0 && absColDiff > 0) || (absColDiff === 0 && absRowDiff > 0) || (absRowDiff === absColDiff && absRowDiff > 0)) {
+                            return isPathClear(fromRow, fromCol, toRow, toCol, boardState);
+                        }
+                        break;
+                    case 'k': // King
+                        // Standard king move
+                        if (absRowDiff <= 1 && absColDiff <= 1) return true;
+
+                        // Castling
+                        if (absRowDiff === 0 && absColDiff === 2) { // King moves two squares horizontally
+                            const rookOriginalCol = (colDiff > 0) ? 7 : 0; // Kingside (h-file) or Queenside (a-file)
+                            const rookRow = fromRow; // Same row as king
+
+                            // 1. King and Rook haven't moved (using global flags as these are persistent state)
+                            // Only check these global flags if it's NOT a hypothetical call.
+                            // For hypothetical calls (generating dots), we assume castling rights if the piece is a king/rook.
+                            if (!isHypothetical) {
+                                if (pieceColor === 'white') {
+                                    if (whiteKingMoved) return false;
+                                    if (rookOriginalCol === 7 && whiteKingsideRookMoved) return false;
+                                    if (rookOriginalCol === 0 && whiteQueensideRookMoved) return false;
+                                    if (boardState[rookRow][rookOriginalCol] !== 'R') return false; // Ensure it's a white rook
+                                } else { // black
+                                    if (blackKingMoved) return false;
+                                    if (rookOriginalCol === 7 && blackKingsideRookMoved) return false;
+                                    if (rookOriginalCol === 0 && blackQueensideRookMoved) return false;
+                                    if (boardState[rookRow][rookOriginalCol] !== 'r') return false; // Ensure it's a black rook
+                                }
+                            } else { // If hypothetical, just check the piece char on the board for a rook, not global flags
+                                if ((pieceColor === 'white' && boardState[rookRow][rookOriginalCol] !== 'R') ||
+                                    (pieceColor === 'black' && boardState[rookRow][rookOriginalCol] !== 'r')) {
+                                    return false;
+                                }
+                            }
+
+
+                            // 2. Path is clear (no pieces between king and rook)
+                            let pathStartCol, pathEndCol;
+                            if (colDiff > 0) { // Kingside
+                                pathStartCol = fromCol + 1; // F-file (5)
+                                pathEndCol = toCol - 1;   // G-file (6)
+                            } else { // Queenside
+                                pathStartCol = toCol + 1; // B-file (1)
+                                pathEndCol = fromCol - 1; // D-file (3)
+                            }
+                            for (let c = pathStartCol; c <= pathEndCol; c++) {
+                                if (boardState[fromRow][c] !== '') return false;
+                            }
+
+
+                            // 3. King is not in check, and does not pass through or land on a square in check
+                            const opponentColorForCastlingCheck = pieceColor === 'white' ? 'black' : 'white';
+                            if (isSquareAttacked(fromRow, fromCol, opponentColorForCastlingCheck, boardState)) return false; // King currently in check
+
+                            if (colDiff > 0) { // Kingside castling
+                                // Check intermediate square (f-file) and target square (g-file)
+                                if (isSquareAttacked(fromRow, fromCol + 1, opponentColorForCastlingCheck, boardState) ||
+                                    isSquareAttacked(fromRow, fromCol + 2, opponentColorForCastlingCheck, boardState)) return false;
+                            } else { // Queenside castling
+                                // Check intermediate squares (d-file, c-file)
+                                if (isSquareAttacked(fromRow, fromCol - 1, opponentColorForCastlingCheck, boardState) ||
+                                    isSquareAttacked(fromRow, fromCol - 2, opponentColorForCastlingCheck, boardState)) return false;
+                            }
+                            return true; // Valid castling
+                        }
+                        break;
+                }
+                return false; // Not a valid move for the given piece type
+            }
+
+
+            // --- Settings Menu Functions ---
+            function openSettings() {
+                settingsMenuContainer.classList.add('active');
+                // Temporarily disable board interaction while settings are open
+                chessboard.style.pointerEvents = 'none';
+                whiteClockTapButton.disabled = true;
+                blackClockTapButton.disabled = true;
+                undoButton.disabled = true;
+                playButton.disabled = true; // Disable play button too
+                abandonButton.disabled = true; // Disable abandon button too
+                openSettingsButton.disabled = true; // Disable itself
+            }
+
+            function closeSettings() {
+                settingsMenuContainer.classList.remove('active');
+                // Re-enable board interaction
+                chessboard.style.pointerEvents = 'auto';
+                updateClockButtonStates(); // Re-enable clock buttons based on game state
+                updateUndoButtonState(); // Re-enable undo button based on game state
+                updatePlayButtonState(); // Re-enable play button based on game state
+                updateAbandonButtonState(); // Re-enable abandon button based on game state
+                openSettingsButton.disabled = false; // Re-enable itself
+            }
+
+            function applyBoardTheme(lightColor, darkColor, presetName) {
+                document.documentElement.style.setProperty('--light-square-color', lightColor);
+                document.documentElement.style.setProperty('--dark-square-color', darkColor);
+                // Update selected class for board themes
+                document.querySelectorAll('#board-theme-options .theme-option-box').forEach(box => {
+                    box.classList.remove('selected');
+                });
+                document.querySelector(`#board-theme-options .theme-option-box[data-color-preset="${presetName}"]`).classList.add('selected');
+                localStorage.setItem('boardTheme', JSON.stringify({ light: lightColor, dark: darkColor, preset: presetName }));
+            }
+
+            function loadPreferences() {
+                const savedBoardTheme = localStorage.getItem('boardTheme');
+                if (savedBoardTheme) {
+                    const theme = JSON.parse(savedBoardTheme);
+                    applyBoardTheme(theme.light, theme.dark, theme.preset);
+                } else {
+                     // Ensure default is selected if nothing saved
+                    document.querySelector('#board-theme-options .theme-option-box[data-color-preset="default-board"]').classList.add('selected');
+                }
+                // No piece style preferences to load anymore
+            }
+
+
+            // --- Event Listeners for Settings Menu ---
+            playButton.addEventListener('click', startGame);
+            abandonButton.addEventListener('click', () => {
+                if (confirm("Are you sure you want to abandon the current game? This will reset the board and clocks.")) {
+                    resetGame();
+                }
+            });
+            openSettingsButton.addEventListener('click', openSettings);
+            settingsCloseButton.addEventListener('click', closeSettings);
+
+            boardThemeOptions.addEventListener('click', (event) => {
+                const clickedBox = event.target.closest('.theme-option-box');
+                if (clickedBox) {
+                    const lightColor = clickedBox.dataset.lightColor;
+                    const darkColor = clickedBox.dataset.darkColor;
+                    const presetName = clickedBox.dataset.colorPreset;
+                    if (lightColor && darkColor) {
+                        applyBoardTheme(lightColor, darkColor, presetName);
+                    }
+                }
+            });
+
+            // Initial setup calls
+            loadPreferences(); // Load saved preferences first (critical for board colors to load BEFORE createBoard)
+            createBoard(); // Initialize the board (will load saved piece style implicitly)
+            saveGameState(); // Save the initial state of the board
+            // The timers are not started yet, and moves are disabled until "Play" is clicked.
+
+            // Event listener for the Undo button
+            undoButton.addEventListener('click', undoLastMove);
+
+            // Event listeners for the clock tap buttons
+            whiteClockTapButton.addEventListener('click', () => {
+                if (turn === 'white' && !canMove) { // Ensure it's the correct turn and a move has been made
+                    tapClock();
+                }
+            });
+            blackClockTapButton.addEventListener('click', () => {
+                if (turn === 'black' && !canMove) { // Ensure it's the correct turn and a move has been made
+                    tapClock();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
